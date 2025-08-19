@@ -10,9 +10,15 @@ import re
 from dotenv import load_dotenv
 load_dotenv()
 
-
-UPLOAD_FOLDER = "uploads"
-VECTOR_FOLDER = "vectorized"
+if os.environ.get('RENDER'):
+    # Production on Render - use temp directories
+    UPLOAD_FOLDER = "/tmp/uploads"
+    VECTOR_FOLDER = "/tmp/vectorized"
+else:
+    # Local development
+    UPLOAD_FOLDER = "uploads"
+    VECTOR_FOLDER = "vectorized"
+    
 ALLOWED_EXTENSIONS = {"json","md","txt"}
 
 if not os.path.exists(UPLOAD_FOLDER):
