@@ -2,6 +2,7 @@ from sentence_transformers import SentenceTransformer
 import faiss
 import json
 import os
+import tempfile
 from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
 from flask_cors import CORS
@@ -10,6 +11,7 @@ import re
 from dotenv import load_dotenv
 load_dotenv()
 
+# Updated folder configuration for Render deployment
 if os.environ.get('RENDER'):
     # Production on Render - use temp directories
     UPLOAD_FOLDER = "/tmp/uploads"
@@ -18,9 +20,10 @@ else:
     # Local development
     UPLOAD_FOLDER = "uploads"
     VECTOR_FOLDER = "vectorized"
-    
+
 ALLOWED_EXTENSIONS = {"json","md","txt"}
 
+# Ensure directories exist with proper error handling
 def ensure_directories():
     try:
         os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -47,18 +50,14 @@ app = Flask(__name__)
 CORS(app)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
-
-
 api_key = os.environ.get("ANTHROPIC_API_KEY")
-hf_token = hf_token = os.environ.get("HF_TOKEN")
+hf_token = os.environ.get("HF_TOKEN")
 anthropic_client = Anthropic(api_key=api_key)
 
 embedder = SentenceTransformer("BAAI/bge-large-en-v1.5", use_auth_token=hf_token)
 
-
 # Helper function to call Claude
 def call_claude(prompt, model="claude-sonnet-4-20250514", max_tokens=4000, temperature=0.1):
-
     client = anthropic_client
     
     response = client.messages.create(
@@ -72,11 +71,8 @@ def call_claude(prompt, model="claude-sonnet-4-20250514", max_tokens=4000, tempe
     
     return response.content[0].text
 
-
 def allowed_files(filename):
     return '.' in filename and filename.rsplit('.',1)[1].lower() in ALLOWED_EXTENSIONS
-
-
 
 def chunk_text(text, chunk_size=1000, overlap=200):
     """Split text into overlapping chunks for better retrieval"""
@@ -296,8 +292,6 @@ def build_index(input_file, text_key, output_prefix):
         print(f"Unexpected error in build_index: {str(e)}")
         return False, f"Unexpected error: {str(e)}"
     
-    
-    
 def delete_index(prefix):
     files = [
         f"{prefix}.faiss",
@@ -342,13 +336,15 @@ def run_search(query, index_name=None, top_k=3):
                 results[prefix] = retrieve(index,texts,query,top_k)
     return {"status":"success","results":results}
 
-
-
-# Updated upload route that doesn't require text_key for non-JSON files
+# Updated upload route with better error handling and logging
 @app.route("/upload", methods=["POST"])
 def upload_file():
     try:
-        print("Upload request received")
+        print("=== Upload Request Started ===")
+        print(f"Upload folder: {UPLOAD_FOLDER}")
+        print(f"Upload folder exists: {os.path.exists(UPLOAD_FOLDER)}")
+        print(f"Upload folder writable: {os.access(UPLOAD_FOLDER, os.W_OK)}")
+        print(f"Current working directory: {os.getcwd()}")
         
         if "file" not in request.files:
             print("No file in request")
@@ -368,13 +364,17 @@ def upload_file():
             print("Invalid file type or no file")
             return jsonify({"status": "error", "message": "Invalid file type"}), 400
         
-        # Save file
+        # Save file with additional error checking
         filename = secure_filename(file.filename)
         file_path = os.path.join(UPLOAD_FOLDER, filename)
         
         try:
+            # Ensure upload folder exists before saving
+            os.makedirs(UPLOAD_FOLDER, exist_ok=True)
             file.save(file_path)
             print(f"File saved to: {file_path}")
+            print(f"File exists after save: {os.path.exists(file_path)}")
+            print(f"File size: {os.path.getsize(file_path)} bytes")
         except Exception as e:
             print(f"Error saving file: {str(e)}")
             return jsonify({"status": "error", "message": f"Error saving file: {str(e)}"}), 500
@@ -399,27 +399,34 @@ def upload_file():
             return jsonify({"status": "error", "message": msg}), 400
         
         print(f"Upload successful: {msg}")
+        print("=== Upload Request Completed ===")
         return jsonify({"status": "success", "message": msg, "file": filename}), 200
         
     except Exception as e:
         print(f"Unexpected error in upload: {str(e)}")
         return jsonify({"status": "error", "message": f"Unexpected error: {str(e)}"}), 500
-    
+
 @app.route("/files",methods=["GET"])
 def list_files():
-    files = os.listdir(UPLOAD_FOLDER)
-    return jsonify({"status":"success","files":files})
+    try:
+        files = os.listdir(UPLOAD_FOLDER)
+        return jsonify({"status":"success","files":files})
+    except Exception as e:
+        return jsonify({"status":"error","message":str(e)}), 500
 
 @app.route("/delete/<filename>", methods=["DELETE"])
 def delete_file(filename):
-    file_path = os.path.join(UPLOAD_FOLDER,filename)
-    prefix = filename.rsplit(".",1)[0]
-    if os.path.exists(file_path):
-        os.remove(file_path)
-        delete_index(prefix)
-        return jsonify({"status":"success","message":f"{filename} and index deleted"})
-    else:
-        return jsonify({"status":"error","message":"File not found"}),400
+    try:
+        file_path = os.path.join(UPLOAD_FOLDER,filename)
+        prefix = filename.rsplit(".",1)[0]
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            delete_index(prefix)
+            return jsonify({"status":"success","message":f"{filename} and index deleted"})
+        else:
+            return jsonify({"status":"error","message":"File not found"}),400
+    except Exception as e:
+        return jsonify({"status":"error","message":str(e)}), 500
 
 @app.route("/search", methods=["POST"])
 def search():
@@ -465,8 +472,6 @@ def search():
 
     return jsonify(policy_result)
 
-
-            
 @app.route("/validate_instruction", methods=["POST"])
 def validate_instruction():
     data = request.get_json()
@@ -482,8 +487,6 @@ def validate_instruction():
         return jsonify({"error":"Search Failed", "details":search_result}),500
     context_results = search_result["results"]
     
-
-
     prompt = f"""
 You are a policy compliance checker and an instruction validator.
 
@@ -491,22 +494,22 @@ Evaluation Criteria
 1. USER-FACING
 a. The instruction must be directed at an end user in natural, human-centered language.
 b. It must not read like a direct command to a system, developer, or internal process.
-c. Prefer “you” or “you want to…” phrasing.
-d. Avoid technical commands like “delete invoice 42,” “POST to API endpoint,” or “run SQL query.”
+c. Prefer "you" or "you want to…" phrasing.
+d. Avoid technical commands like "delete invoice 42," "POST to API endpoint," or "run SQL query."
 
 2. OUTPUT/GOAL ORIENTED (not procedural)
 a. The instruction must specify the exact outcome or solution the task is designed to achieve, not how to do it step-by-step.
-b. Avoid “spoon-feeding” the system with exact process steps (looping, filtering, database operations, etc.).
+b. Avoid "spoon-feeding" the system with exact process steps (looping, filtering, database operations, etc.).
 
 3. SINGLE, UNAMBIGUOUS OUTCOME
 a. One overarching outcome – It expresses a single desired result instead of multiple separate actions.
-b. User-centered – Written in second person (“you want to…”) so it’s directed at the end user.
+b. User-centered – Written in second person ("you want to…") so it's directed at the end user.
 c. Context-preserving – All relevant details (time, people, conditions, constraints) are included, but only as supporting context to achieve that one outcome.
 d. Clarity & measurability – The goal is specific enough that you can verify when it has been achieved.
 e. No competing intents – Even if there are multiple steps, they are framed as sub-parts of one larger objective, not as separate goals.
 Example:
-Not a single goal (ambiguous): “Fix the bulb, create an alert, and schedule automation.”
-Single unambiguous goal: “You want to ensure reliable bulb management by fixing the malfunction, logging the alert acknowledged by David Navarro, and setting up a daily shutdown routine.”
+Not a single goal (ambiguous): "Fix the bulb, create an alert, and schedule automation."
+Single unambiguous goal: "You want to ensure reliable bulb management by fixing the malfunction, logging the alert acknowledged by David Navarro, and setting up a daily shutdown routine."
 
  
 4. POLICY COMPLIANT
@@ -567,7 +570,6 @@ Respond ONLY in format given below:
 
     result_text = call_claude(prompt)
     
-
     if result_text.startswith("```"):
         result_text = result_text.strip("`").lstrip("json").strip()
 
@@ -582,7 +584,17 @@ Respond ONLY in format given below:
 
     return jsonify({"Validation": validation_data})
 
+# Health check endpoint
+@app.route("/health", methods=["GET"])
+def health_check():
+    return jsonify({
+        "status": "healthy",
+        "upload_folder": UPLOAD_FOLDER,
+        "upload_folder_exists": os.path.exists(UPLOAD_FOLDER),
+        "upload_folder_writable": os.access(UPLOAD_FOLDER, os.W_OK),
+        "vector_folder": VECTOR_FOLDER,
+        "vector_folder_exists": os.path.exists(VECTOR_FOLDER)
+    })
+
 if __name__ == "__main__":
-    import os
-    port = int(os.environ.get("PORT", 5000))  # Render sets $PORT
-    app.run(host="0.0.0.0", port=port)
+    app.run(debug=True)
