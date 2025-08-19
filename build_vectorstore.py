@@ -10,15 +10,38 @@ import re
 from dotenv import load_dotenv
 load_dotenv()
 
-
-UPLOAD_FOLDER = "uploads"
-VECTOR_FOLDER = "vectorized"
+if os.environ.get('RENDER'):
+    # Production on Render - use temp directories
+    UPLOAD_FOLDER = "/tmp/uploads"
+    VECTOR_FOLDER = "/tmp/vectorized"
+else:
+    # Local development
+    UPLOAD_FOLDER = "uploads"
+    VECTOR_FOLDER = "vectorized"
+    
 ALLOWED_EXTENSIONS = {"json","md","txt"}
 
-if not os.path.exists(UPLOAD_FOLDER):
-    os.mkdir(UPLOAD_FOLDER)
-if not os.path.exists(VECTOR_FOLDER):
-    os.mkdir(VECTOR_FOLDER)
+def ensure_directories():
+    try:
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+        os.makedirs(VECTOR_FOLDER, exist_ok=True)
+        print(f"Directories created/verified:")
+        print(f"  Upload folder: {UPLOAD_FOLDER} (exists: {os.path.exists(UPLOAD_FOLDER)})")
+        print(f"  Vector folder: {VECTOR_FOLDER} (exists: {os.path.exists(VECTOR_FOLDER)})")
+        
+        # Test write permissions
+        test_file = os.path.join(UPLOAD_FOLDER, 'test_write.txt')
+        with open(test_file, 'w') as f:
+            f.write('test')
+        os.remove(test_file)
+        print(f"  Upload folder is writable: True")
+        
+    except Exception as e:
+        print(f"Error creating directories: {str(e)}")
+        raise
+
+# Create directories on startup
+ensure_directories()
 
 app = Flask(__name__)
 CORS(app)
@@ -560,4 +583,6 @@ Respond ONLY in format given below:
     return jsonify({"Validation": validation_data})
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    import os
+    port = int(os.environ.get("PORT", 5000))  # Render sets $PORT
+    app.run(host="0.0.0.0", port=port)
