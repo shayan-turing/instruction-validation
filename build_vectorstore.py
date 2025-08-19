@@ -21,10 +21,27 @@ else:
     
 ALLOWED_EXTENSIONS = {"json","md","txt"}
 
-if not os.path.exists(UPLOAD_FOLDER):
-    os.mkdir(UPLOAD_FOLDER)
-if not os.path.exists(VECTOR_FOLDER):
-    os.mkdir(VECTOR_FOLDER)
+def ensure_directories():
+    try:
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+        os.makedirs(VECTOR_FOLDER, exist_ok=True)
+        print(f"Directories created/verified:")
+        print(f"  Upload folder: {UPLOAD_FOLDER} (exists: {os.path.exists(UPLOAD_FOLDER)})")
+        print(f"  Vector folder: {VECTOR_FOLDER} (exists: {os.path.exists(VECTOR_FOLDER)})")
+        
+        # Test write permissions
+        test_file = os.path.join(UPLOAD_FOLDER, 'test_write.txt')
+        with open(test_file, 'w') as f:
+            f.write('test')
+        os.remove(test_file)
+        print(f"  Upload folder is writable: True")
+        
+    except Exception as e:
+        print(f"Error creating directories: {str(e)}")
+        raise
+
+# Create directories on startup
+ensure_directories()
 
 app = Flask(__name__)
 CORS(app)
