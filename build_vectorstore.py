@@ -12,8 +12,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-UPLOAD_FOLDER = "/tmp/uploads"
-VECTOR_FOLDER = "/tmp/vectorized"
+UPLOAD_FOLDER = "uploads"
+VECTOR_FOLDER = "vectorized"
 ALLOWED_EXTENSIONS = {"json","md","txt"}
 
 # Ensure directories exist with proper error handling
