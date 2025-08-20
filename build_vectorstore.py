@@ -11,16 +11,9 @@ import re
 from dotenv import load_dotenv
 load_dotenv()
 
-# Updated folder configuration for Render deployment
-if os.environ.get('RENDER'):
-    # Production on Render - use temp directories
-    UPLOAD_FOLDER = "/tmp/uploads"
-    VECTOR_FOLDER = "/tmp/vectorized"
-else:
-    # Local development
-    UPLOAD_FOLDER = "uploads"
-    VECTOR_FOLDER = "vectorized"
 
+UPLOAD_FOLDER = "/tmp/uploads"
+VECTOR_FOLDER = "/tmp/vectorized"
 ALLOWED_EXTENSIONS = {"json","md","txt"}
 
 # Ensure directories exist with proper error handling
